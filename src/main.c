@@ -1,43 +1,57 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "include/limine.h"
-#include "include/flanterm.h"
-#include "include/flanterm_backends/fb.h"
-#include "include/string.h"
 #include "include/gdt.h"
-// Tell Limine we need a terminal to print to the screen
+#include "include/idt.h"
+#include "include/console.h"
+
 static volatile struct limine_framebuffer_request framebuffer_request = {
     .id = LIMINE_FRAMEBUFFER_REQUEST_ID,
     .revision = 0
 };
 
-// This is your new entry point (replacing your old assembly call)
+static inline void outb(uint16_t port, uint8_t val) {
+    __asm__ volatile ( "outb %0, %1" : : "a"(val), "Nd"(port) );
+}
+
+void pic_init(void) {
+    outb(0x20, 0x11);
+    outb(0xA0, 0x11);
+    outb(0x21, 0x20);
+    outb(0xA1, 0x28);
+    outb(0x21, 0x04);
+    outb(0xA1, 0x02);
+    outb(0x21, 0x01);
+    outb(0xA1, 0x01);
+    outb(0x21, 0xFE); 
+    outb(0xA1, 0xFF); 
+}
+
 void _start(void) {
+    // CRITICAL: Ensure hardware interrupts are off while building descriptor tables
+    __asm__ volatile("cli");
+
     gdt_init();
-    // Ensure the bootloader actually gave us a terminal
-    if (framebuffer_request.response == NULL || framebuffer_request.response->framebuffer_count < 0) {
+    idt_init();
+    pic_init(); 
+
+    if (framebuffer_request.response == NULL || framebuffer_request.response->framebuffer_count == 0) {
         while(1); 
     }
     struct limine_framebuffer *fb = framebuffer_request.response->framebuffers[0];
 
-    // Initialize Flanterm by passing it all the screen details
-    struct flanterm_context *ft_ctx = flanterm_fb_init(
-    NULL, NULL,                           // 1, 2: Allocation functions
-    fb->address, fb->width, fb->height, fb->pitch, // 3, 4, 5, 6: Framebuffer dimensions
-    fb->red_mask_size, fb->red_mask_shift, // 7, 8: Red mask
-    fb->green_mask_size, fb->green_mask_shift, // 9, 10: Green mask
-    fb->blue_mask_size, fb->blue_mask_shift, // 11, 12: Blue mask
-    NULL, NULL, NULL, NULL, NULL, NULL,   // 13, 14, 15, 16, 17, 18: Font & canvas overrides
-    NULL, NULL,                           // 19, 20: Color palette configuration
-    0, 0,                                 // 21, 22: Margins
-    1,                                    // 23: Text scale
-    0, 0, 0, 0                            // 24, 25, 26, 27: Text spacing, tabs, and flags
-    );
-    const char *msg = "Hello World from modern Limine and Flanterm!\n";
-    flanterm_write(ft_ctx, msg, 46); // length of string reminder pls make a wrapper later so this is jsut a kernel syscall da4qk 7/18/26
-    
-    // Halt the CPU
+    console_init(fb);
+    kprintf("Init console context \033[32mSUCCESS\n");
+      
+    // Test 1: Software exception
+    __asm__ volatile("int $3");
+    kprintf("If you see this, your INT 3 handler returned successfully!\n");
+
+    // Test 2: Enable Hardware Interrupts
+    kprintf("Enabling hardware interrupts...\n");
+    __asm__ volatile("sti");
+
     while(1) {
-        __asm__("hlt");
+        __asm__ volatile("hlt");
     }
 }

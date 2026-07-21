@@ -1,9 +1,9 @@
 BACKEND = gcc
 CROSS = x86_64-elf-
 
-SRC = $(shell find src -name "*.c")
+SRC = $(shell find src -name "*.c") $(shell find src -name "*.S")
 OUT_DIR = out
-TARGET = $(OUT_DIR)/kernel.bin
+TARGET = $(OUT_DIR)/kernel.elf
 ISO_IMAGE = $(OUT_DIR)/WingOS.iso
 
 .PHONY: all clean iso setup_limine
@@ -29,7 +29,7 @@ iso: $(TARGET) setup_limine
 	echo "timeout: 3" > $(OUT_DIR)/iso_root/limine.conf
 	echo "/WingOS" >> $(OUT_DIR)/iso_root/limine.conf
 	echo "    protocol: limine" >> $(OUT_DIR)/iso_root/limine.conf
-	echo "    path: boot():/kernel.bin" >> $(OUT_DIR)/iso_root/limine.conf
+	echo "    path: boot():/kernel.elf" >> $(OUT_DIR)/iso_root/limine.conf
 	
 	# Copy your kernel and Limine components into the staging area
 	cp $(TARGET) $(OUT_DIR)/iso_root/
