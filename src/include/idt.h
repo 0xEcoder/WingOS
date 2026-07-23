@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+
+
 // CRITICAL: Packed to ensure exactly 16 bytes per entry
 struct idt_entry {
     uint16_t isr_low;

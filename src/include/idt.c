@@ -1,6 +1,7 @@
 #include "idt.h"
 #include <stdint.h>
 #include "console.h"
+#include "keyboard.h" // Added header for keyboard_handler()
 
 // Define the 256 entry table and its pointer
 struct idt_entry my_idt[256] __attribute__((aligned(16)));
@@ -31,6 +32,7 @@ extern void isr28(void); extern void isr29(void); extern void isr30(void); exter
 
 // Hardware IRQ stubs
 extern void irq0_timer(void);
+extern void irq1_keyboard(void); // Vector 33 / IRQ 1 assembly stub
 
 void idt_handle_exception(uint64_t vector, uint64_t error_code, uint64_t rip) {
     // 1. Handle Hardware Timer (IRQ 0 remapped to Vector 32 / 0x20)
@@ -40,7 +42,14 @@ void idt_handle_exception(uint64_t vector, uint64_t error_code, uint64_t rip) {
         return; 
     }
 
-    // 2. Handle standard CPU Exceptions (Vectors 0 - 31)
+    // 2. Handle Hardware Keyboard (IRQ 1 remapped to Vector 33 / 0x21)
+    if (vector == 0x21) {
+        keyboard_handler();
+        __asm__ volatile("outb %%al, %%dx" :: "a"(0x20), "d"(0x20)); // EOI to PIC
+        return;
+    }
+
+    // 3. Handle standard CPU Exceptions (Vectors 0 - 31)
     if (vector < 32) {
         kprintf("\n==================================================\n");
         kprintf("!!! KERNEL PANIC: %s (Exception %d) !!!\n", exception_messages[vector], vector);
@@ -72,7 +81,7 @@ void idt_set_descriptor(uint8_t vector, void* isr, uint8_t attributes) {
 
 void idt_init(void) {
     idt_ptr.limit = (sizeof(struct idt_entry) * 256) - 1;
-    idt_ptr.base  = (uint64_t)&my_idt; // Fixed: points to my_idt base address
+    idt_ptr.base  = (uint64_t)&my_idt;
 
     for (int i = 0; i < 256; i++) {
         my_idt[i] = (struct idt_entry){0};
@@ -97,7 +106,8 @@ void idt_init(void) {
     idt_set_descriptor(30, isr30, 0x8E); idt_set_descriptor(31, isr31, 0x8E);
 
     // Register hardware IRQs
-    idt_set_descriptor(32, irq0_timer, 0x8E); 
+    idt_set_descriptor(32, irq0_timer,    0x8E); 
+    idt_set_descriptor(33, irq1_keyboard, 0x8E); // Registered Vector 33 (0x21)
 
     __asm__ volatile("lidt %0" : : "m"(idt_ptr));
 }

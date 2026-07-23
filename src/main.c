@@ -4,6 +4,8 @@
 #include "include/gdt.h"
 #include "include/idt.h"
 #include "include/console.h"
+#include "include/pmm.h"
+#include "include/keyboard.h"
 
 static volatile struct limine_framebuffer_request framebuffer_request = {
     .id = LIMINE_FRAMEBUFFER_REQUEST_ID,
@@ -23,7 +25,7 @@ void pic_init(void) {
     outb(0xA1, 0x02);
     outb(0x21, 0x01);
     outb(0xA1, 0x01);
-    outb(0x21, 0xFE); 
+    outb(0x21, 0xFC); 
     outb(0xA1, 0xFF); 
 }
 
@@ -33,24 +35,33 @@ void _start(void) {
 
     gdt_init();
     idt_init();
-    pic_init(); 
-
+    pic_init();
+    __asm__ volatile("sti");
     if (framebuffer_request.response == NULL || framebuffer_request.response->framebuffer_count == 0) {
         while(1); 
     }
     struct limine_framebuffer *fb = framebuffer_request.response->framebuffers[0];
-
+  
     console_init(fb);
-    kprintf("Init console context \033[32mSUCCESS\n");
-      
-    // Test 1: Software exception
-    __asm__ volatile("int $3");
-    kprintf("If you see this, your INT 3 handler returned successfully!\n");
+    klogf("Init console context\n");
+    pmm_init();
+    klogf("PMM Init\n");  
+    void* page1 = pmm_alloc_page();
+    void* page2 = pmm_alloc_page();
 
-    // Test 2: Enable Hardware Interrupts
-    kprintf("Enabling hardware interrupts...\n");
-    __asm__ volatile("sti");
+    klogf("Allocated Page 1 Physical Address: 0x%x\n", (uint64_t)page1);
+    klogf("Allocated Page 2 Physical Address: 0x%x\n", (uint64_t)page2);
 
+    pmm_free_page(page1);
+    klogf("Freed Page 1\n");
+    pmm_free_page(page2);
+    klogf("Freed Page 2\n");
+
+    keyboard_init();
+    klogf("PS/2 Keyboard init\n");
+    keyboard_enable();
+    klogf("Keyboard enabled\n");
+    // testing sti later
     while(1) {
         __asm__ volatile("hlt");
     }
