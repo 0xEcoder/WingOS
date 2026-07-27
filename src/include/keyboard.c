@@ -30,13 +30,15 @@ static const char scancode_to_ascii[] = {
 void keyboard_enable(void) {
     uint8_t mask = inb(0x21);
     outb(0x21, mask & ~(1 << 1)); // Clear bit 1 on Master PIC (Unmask IRQ 1)
-    outb(0x64, 0xAE);             // Command PS/2 controller: Enable Port 1
+    outb(0x64, 0xAE);
+    klogf("ps2: keyboard controller listening for scancodes\n");             // Command PS/2 controller: Enable Port 1
 }
 
 void keyboard_disable(void) {
     uint8_t mask = inb(0x21);
     outb(0x21, mask | (1 << 1));  // Set bit 1 on Master PIC (Mask IRQ 1)
     outb(0x64, 0xAD);             // Command PS/2 controller: Disable Port 1
+    klogf("ps2: keyboard controller stopped listening for scancodes\n");
 }
 
 void keyboard_handler(void) {
@@ -100,4 +102,5 @@ void keyboard_init(void) {
     while (inb(0x64) & 1) {
         inb(0x60);
     }
+    klogf("ps2: keyboard driver initialized (IRQ 1 mapped)\n");
 }

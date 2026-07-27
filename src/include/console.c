@@ -4,7 +4,7 @@
 #include <stdarg.h>  
 #include <stddef.h>
 #include <stdint.h>
-
+#include "timer.h"
 
 static struct flanterm_context *global_ctx = NULL;
 
@@ -18,6 +18,10 @@ void console_init(struct limine_framebuffer *fb) {
         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
         0, 0, 1, 1, 1, 0, 0
     );
+    klogf("fb0: context initialized with %dx%d resolution, %d bpp, pitch %d at 0x%x\n", 
+          (uint32_t)fb->width, (uint32_t)fb->height, 
+          (uint32_t)fb->bpp, (uint32_t)fb->pitch, (uint64_t)fb->address);
+
 }
 
 static void kprints(const char* text) {
@@ -110,14 +114,17 @@ void kprintf(const char* format, ...) {
 
 // Timestamped logging wrapper
 void klogf(const char *fmt, ...) {
-    uint64_t sec = system_ticks / TIMER_FREQ;
-    uint64_t ms  = (system_ticks % TIMER_FREQ) * (1000 / TIMER_FREQ);
+    // Fetch total milliseconds directly from the central timer module
+    uint64_t total_ms = timer_get_uptime_ms();
+    
+    uint32_t sec = (uint32_t)(total_ms / 1000);
+    uint32_t ms  = (uint32_t)(total_ms % 1000);
 
     // Manual zero-padding for milliseconds (< 10 -> "00", < 100 -> "0")
     const char* ms_pad = (ms < 10) ? "00" : (ms < 100) ? "0" : "";
 
-    // Print header using basic %d formatters that your kprintf already supports
-    kprintf("[%d.%s%d] ", (uint32_t)sec, ms_pad, (uint32_t)ms);
+    // Print header: [ seconds.milliseconds ]
+    kprintf("[%d.%s%d] ", sec, ms_pad, ms);
 
     // Pass the rest of the log message to vkprintf
     va_list args;

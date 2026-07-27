@@ -5,6 +5,7 @@ SRC = $(shell find src -name "*.c") $(shell find src -name "*.S")
 OUT_DIR = out
 TARGET = $(OUT_DIR)/kernel.elf
 ISO_IMAGE = $(OUT_DIR)/WingOS.iso
+CMDLINE ?= cli
 
 .PHONY: all clean iso setup_limine
 
@@ -12,30 +13,27 @@ all: $(TARGET)
 
 $(TARGET): $(SRC)
 	mkdir -p $(OUT_DIR)
-	$(CROSS)$(BACKEND) -ffreestanding -nostdlib -mcmodel=kernel -mno-red-zone -T linker.ld $(SRC) -o $(TARGET)
+	$(CROSS)$(BACKEND) -ffreestanding -nostdlib -mcmodel=kernel -mno-red-zone \
+		-Wl,--build-id=none -z max-page-size=0x1000 -T linker.ld $(SRC) -o $(TARGET)
+
 # 1. Download and build exact Limine v12.x binaries
 setup_limine:
-	@if [ ! -d "limine" ]; then \
-		git clone https://github.com/limine-bootloader/limine.git --branch=v12.x-binary --depth=1; \
-		make -C limine; \
-	fi
+	wget https://github.com/Limine-Bootloader/Limine/releases/download/v12.5.2/limine-12.5.2.tar.xz
+	tar -xf limine-12.5.2.tar.xz
+	cd limine-12.5.2 && make
 
 # 2. Build the bootable ISO image inside the out/ folder
-iso: $(TARGET) setup_limine
+iso: $(TARGET) $(setup_limine)
 	# Create a temporary staging area inside out/
 	mkdir -p $(OUT_DIR)/iso_root
+
+	cp limine.conf $(OUT_DIR)/iso_root/limine.cfg
 	
-	# Create the Limine v12.5.0 configuration file using colons
-	echo "timeout: 3" > $(OUT_DIR)/iso_root/limine.conf
-	echo "/WingOS" >> $(OUT_DIR)/iso_root/limine.conf
-	echo "    protocol: limine" >> $(OUT_DIR)/iso_root/limine.conf
-	echo "    path: boot():/kernel.elf" >> $(OUT_DIR)/iso_root/limine.conf
-	
-	# Copy your kernel and Limine components into the staging area
+	# Copy kernel and Limine binaries to staging area
 	cp $(TARGET) $(OUT_DIR)/iso_root/
 	cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin $(OUT_DIR)/iso_root/
 	
-	# Build the ISO right into the out/ directory
+	# Build bootable ISO image
 	xorriso -as mkisofs -b limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		-eltorito-alt-boot \
@@ -43,10 +41,10 @@ iso: $(TARGET) setup_limine
 		-no-emul-boot -isohybrid-gpt-basdat \
 		$(OUT_DIR)/iso_root -o $(ISO_IMAGE)
 	
-	# Deploy Limine via the modern binary utility
+	# Deploy Limine BIOS bootloader stage
 	./limine/limine bios-install $(ISO_IMAGE)
 	
-	# Clean up the staging folder automatically
+	# Clean up staging area
 	rm -rf $(OUT_DIR)/iso_root
 
 clean:

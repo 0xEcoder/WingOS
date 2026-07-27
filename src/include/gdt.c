@@ -1,4 +1,5 @@
 #include "gdt.h"
+#include "console.h"
 
 // CRITICAL: Packed structure prevents compiler padding
 struct gdt_pointer {
@@ -35,4 +36,5 @@ void gdt_init(void) {
         : "m"(gdt_ptr)
         : "rax", "memory"
     );
+    klogf("gdt0: loaded 64-bit kernel descriptors\n");
 }

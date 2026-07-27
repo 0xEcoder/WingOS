@@ -1,15 +1,25 @@
 #include "pmm.h"
 #include "limine.h"
 #include <stddef.h>
+#include <stdint.h>
+#include "console.h"
 
-static volatile struct limine_memmap_request memmap_request = {
-    .id = LIMINE_MEMMAP_REQUEST_ID,
-    .revision = 0
-};
+#ifndef PAGE_SIZE
+#define PAGE_SIZE 4096
+#endif
+
+#define HHDM_OFFSET 0xFFFF800000000000ULL
+
+// Fix 1: Corrected Limine ID macro name
+extern struct limine_memmap_request memmap_request;
+
 
 static uint8_t* bitmap = NULL;
 static size_t highest_page_idx = 0;
-static size_t free_memory = 0;
+
+// Fix 2: Defined missing page count variables
+static size_t total_pages = 0;
+static size_t free_pages = 0;
 
 static inline void bitmap_set(size_t bit) {
     bitmap[bit / 8] |= (1 << (bit % 8));
@@ -40,13 +50,15 @@ void pmm_init(void) {
     }
 
     highest_page_idx = highest_addr / PAGE_SIZE;
+    total_pages = highest_page_idx;
     size_t bitmap_size = highest_page_idx / 8;
 
     // 2. Find a usable memory region big enough to store the bitmap itself
     for (size_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry *entry = memmap->entries[i];
         if (entry->type == LIMINE_MEMMAP_USABLE && entry->length >= bitmap_size) {
-            bitmap = (uint8_t*)(entry->base + 0xFFFF800000000000); // Higher-half direct map offset
+            // Apply higher-half offset so kernel can write to virtual address
+            bitmap = (uint8_t*)(entry->base + HHDM_OFFSET); 
             
             // Mark entire bitmap memory as used by default (fill with 0xFF)
             for (size_t b = 0; b < bitmap_size; b++) {
@@ -65,24 +77,29 @@ void pmm_init(void) {
 
             for (size_t p = 0; p < page_count; p++) {
                 bitmap_clear(start_page + p);
-                free_memory += PAGE_SIZE;
+                free_pages++;
             }
         }
     }
 
     // 4. Mark the bitmap's own physical pages as used so we don't overwrite it!
-    size_t bitmap_start_page = ((uint64_t)bitmap - 0xFFFF800000000000) / PAGE_SIZE;
+    size_t bitmap_start_page = ((uint64_t)bitmap - HHDM_OFFSET) / PAGE_SIZE;
     size_t bitmap_page_count = (bitmap_size + PAGE_SIZE - 1) / PAGE_SIZE;
     for (size_t p = 0; p < bitmap_page_count; p++) {
-        bitmap_set(bitmap_start_page + p);
+        if (!bitmap_test(bitmap_start_page + p)) {
+            bitmap_set(bitmap_start_page + p);
+            if (free_pages > 0) free_pages--;
+        }
     }
+    uint64_t free_ram_mb = pmm_get_free_memory() / 1024 / 1024;
+    klogf("pmm0: physical allocator ready (%d MB usable RAM)\n", (uint32_t)free_ram_mb);
 }
 
 void* pmm_alloc_page(void) {
     for (size_t i = 0; i < highest_page_idx; i++) {
         if (!bitmap_test(i)) {
             bitmap_set(i);
-            free_memory -= PAGE_SIZE;
+            if (free_pages > 0) free_pages--;
             return (void*)(i * PAGE_SIZE);
         }
     }
@@ -93,6 +110,14 @@ void pmm_free_page(void* ptr) {
     size_t page_idx = (uint64_t)ptr / PAGE_SIZE;
     if (bitmap_test(page_idx)) {
         bitmap_clear(page_idx);
-        free_memory += PAGE_SIZE;
+        free_pages++;
     }
+}
+
+size_t pmm_get_free_memory(void) {
+    return free_pages * PAGE_SIZE;
+}
+
+size_t pmm_get_total_memory(void) {
+    return total_pages * PAGE_SIZE;
 }
