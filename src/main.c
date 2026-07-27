@@ -10,6 +10,9 @@
 #include "include/vmm.h"
 #include "include/heap.h"
 #include "include/timer.h"
+#include "include/shell.h"
+
+bool g_cli_mode_enabled = false;
 
 // 1. START MARKER
 __attribute__((used, section(".requests_start_marker")))
@@ -136,32 +139,19 @@ void _start(void) {
     keyboard_init();
     
     keyboard_enable();
-    
-    bool start_cli = false;
 
-    __asm__ volatile("" : : : "memory");
-
-    
-    klogf("core: command line: %s\n", 
-          (cmdline_request.response && cmdline_request.response->cmdline) ? 
-          cmdline_request.response->cmdline : "(none)");
-
-    // Parse Limine command line arguments
     if (cmdline_request.response != NULL && cmdline_request.response->cmdline != NULL) {
         const char *cmdline = cmdline_request.response->cmdline;
-
+        
+        // Use your str_contains or strstr to see if "cli" is present anywhere in the arguments
         if (str_contains(cmdline, "cli")) {
-            start_cli = true;
+            g_cli_mode_enabled = true;
+            klogf("core: 'cli' argument detected. Shell enabled.\n");
+            kprintf("# "); // lazy fix
+        } else {
+            klogf("core: no 'cli' argument provided. Shell disabled.\n");
         }
     }
-
-    if (start_cli) {
-        klogf("core: 'cli' argument detected. starting shell\n");
-        // shell_run();
-    } else {
-        klogf("core: no 'cli' argument provided. continue\n");
-    }
-
     while(1) {
         __asm__ volatile("hlt");
     }

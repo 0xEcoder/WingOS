@@ -25,3 +25,14 @@ size_t strlen(const char* str) {
     }
     return len;
 }
+
+int strcmp(const char *s1, const char *s2) {
+    // Loop through both strings as long as characters match and aren't null-terminators
+    while (*s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+    }
+    
+    // Return the ASCII difference of the first non-matching characters
+    return *(const unsigned char *)s1 - *(const unsigned char *)s2;
+}
