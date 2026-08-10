@@ -11,8 +11,11 @@
 #include "include/heap.h"
 #include "include/timer.h"
 #include "include/shell.h"
+#include "include/drivers/ahci.h"
 
 bool g_cli_mode_enabled = false;
+
+extern hba_port_t *boot_drive_port;
 
 // 1. START MARKER
 __attribute__((used, section(".requests_start_marker")))
@@ -73,6 +76,48 @@ static bool str_contains(const char *str, const char *search) {
     return false;
 }
 
+static inline uint32_t inl(uint16_t port) {
+    uint32_t ret;
+    __asm__ volatile ( "inl %1, %0" : "=a"(ret) : "Nd"(port) );
+    return ret;
+}
+
+static inline void outl(uint16_t port, uint32_t val) {
+    __asm__ volatile ( "outl %0, %1" : : "a"(val), "Nd"(port) );
+}
+
+uint32_t pci_read_config(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
+    uint32_t address = (uint32_t)((1 << 31) | (bus << 16) | (slot << 11) | (func << 8) | (offset & 0xFC));
+    outl(0xCF8, address);
+    return inl(0xCFC);
+}
+
+// Scan PCI bus to locate the AHCI Mass Storage Controller and retrieve BAR5 (ABAR)
+uintptr_t pci_find_ahci_controller(void) {
+    for (int bus = 0; bus < 256; bus++) {
+        for (int slot = 0; slot < 32; slot++) {
+            for (int func = 0; func < 8; func++) {
+                uint32_t vendor_device = pci_read_config(bus, slot, func, 0x00);
+                uint16_t vendor_id = vendor_device & 0xFFFF;
+                
+                if (vendor_id == 0xFFFF) continue;
+
+                uint32_t class_rev = pci_read_config(bus, slot, func, 0x08);
+                uint8_t class_code = (class_rev >> 24) & 0xFF;
+                uint8_t subclass = (class_rev >> 16) & 0xFF;
+                uint8_t prog_if = (class_rev >> 8) & 0xFF;
+
+                // Mass Storage (0x01), SATA subclass (0x06), AHCI programming interface (0x01)
+                if (class_code == 0x01 && subclass == 0x06 && prog_if == 0x01) {
+                    uint32_t bar5 = pci_read_config(bus, slot, func, 0x24);
+                    return (uintptr_t)(bar5 & 0xFFFFFFF0);
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 static inline uint64_t get_current_rip(void) {
     uint64_t rip;
     __asm__ volatile (
@@ -124,7 +169,7 @@ void _start(void) {
     timer_init(1000); // Set 1000 Hz frequency (1 tick = 1ms)
     // Enable CPU Interrupts
     __asm__ volatile("sti");
-    klogf("core: sti called. interrupts enabled. RIP=0x%x\n", get_current_rip());
+    klogf("core: sti called. interrupts enabled. RIP=%x\n", get_current_rip());
 
     // --- PMM Logging ---
     pmm_init();
@@ -140,10 +185,61 @@ void _start(void) {
     
     keyboard_enable();
 
+    klogf("ahci: scanning PCI bus for AHCI controller...\n");
+    uintptr_t abar_physical = pci_find_ahci_controller();
+
+    if (abar_physical == 0) {
+        klogf("ahci: warning - no AHCI controller found on PCI bus.\n");
+    } else {
+        klogf("ahci: found AHCI controller physical base address at %x\n", abar_physical);
+        
+        if (hhdm_request.response == NULL) {
+            klogf("ahci: error - HHDM response is NULL! Cannot map MMIO registers safely.\n");
+        } else {
+            uint64_t hhdm_offset = hhdm_request.response->offset;
+            uintptr_t abar_virtual = abar_physical + hhdm_offset;
+            
+            // 1. Map the first 4KB page
+            vmm_map_page(kernel_pml4, 
+                         abar_virtual, 
+                         abar_physical, 
+                         PAGE_WRITABLE | PAGE_CACHE_DISABLE);
+            
+            // 2. Map the second 4KB page (because hba_mem_t is ~4.3KB total)
+            vmm_map_page(kernel_pml4, 
+                         abar_virtual + 0x1000, 
+                         abar_physical + 0x1000, 
+                         PAGE_WRITABLE | PAGE_CACHE_DISABLE);
+
+            klogf("ahci: mapped AHCI controller to virtual address %x\n", abar_virtual);
+
+            // 3. Now it is safely in your page tables. Cast and probe!
+            hba_mem_t *abar = (hba_mem_t *)abar_virtual;
+            probe_ahci_ports(abar);
+        }
+    }
+    
+    // Allocate a temporary 512-byte buffer in kernel memory
+    uint8_t *sector_buffer = (uint8_t *)pmm_alloc_page() + HHDM_OFFSET;
+
+    // Try reading LBA 2 (where ext2 superblock traditionally starts)
+    if (boot_drive_port != NULL) {
+        bool ok = ahci_read(boot_drive_port, 2, 1, sector_buffer);
+        if (ok) {
+            klogf("ahci: Successfully read LBA 2 from disk!\n");
+            
+            // Optional check for ext2 magic number (0xEF53 at offset 0x38 in superblock)
+            uint16_t magic = *(uint16_t *)(sector_buffer + 0x38);
+            klogf("ahci: Filesystem Magic Number: %x (Expected: 0xEF53)\n", magic);
+        } else {
+            klogf("ahci: Failed to read sector from disk.\n");
+        }
+    }
+
     if (cmdline_request.response != NULL && cmdline_request.response->cmdline != NULL) {
         const char *cmdline = cmdline_request.response->cmdline;
         
-        // Use your str_contains or strstr to see if "cli" is present anywhere in the arguments
+        // Use str_contains or strstr to see if "cli" is present anywhere in the arguments
         if (str_contains(cmdline, "cli")) {
             g_cli_mode_enabled = true;
             klogf("core: 'cli' argument detected. Shell enabled.\n");

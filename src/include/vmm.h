@@ -22,4 +22,9 @@ void vmm_switch_pml4(page_table_t *pml4);
 
 extern page_table_t *kernel_pml4;
 
+#define PAGE_PRESENT       0x01
+#define PAGE_WRITABLE      0x02
+#define PAGE_USER          0x04
+#define PAGE_CACHE_DISABLE 0x10 // Add this for MMIO!
+
 #endif

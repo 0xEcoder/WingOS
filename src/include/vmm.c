@@ -94,6 +94,6 @@ void vmm_init(void) {
     // Read active CR3 register directly from CPU to log active PML4 physical address
     uint64_t active_cr3;
     __asm__ volatile("mov %%cr3, %0" : "=r"(active_cr3));
-    klogf("vmm0: 4-level paging active, active cr3=0x%x\n", active_cr3);
+    klogf("vmm0: 4-level paging active, active cr3=%x\n", active_cr3);
     klogf("vmm0: hhdm mapped at 0xFFFF800000000000\n");
 }

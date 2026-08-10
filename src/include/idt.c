@@ -61,8 +61,8 @@ void idt_handle_exception(uint64_t vector, uint64_t error_code, uint64_t rip) {
     if (vector < 32) {
         kprintf("\n==================================================\n");
         kprintf("!!! KERNEL PANIC: %s (Exception %d) !!!\n", exception_messages[vector], vector);
-        kprintf("Error Code: 0x%x\n", error_code);
-        kprintf("Crashed at Instruction Pointer (RIP): 0x%x\n", rip);
+        kprintf("Error Code: %x\n", error_code);
+        kprintf("Crashed at Instruction Pointer (RIP): %x\n", rip);
         kprintf("System Uptime: %d ticks\n", system_ticks);
         kprintf("==================================================\n");
         kprintf("System Halted Safely.");
@@ -113,5 +113,5 @@ void idt_init(void) {
     idt_set_descriptor(33, irq1_keyboard, 0x8E);
 
     __asm__ volatile("lidt %0" : : "m"(idt_ptr));
-    klogf("idt0: loaded IDT gates at 0x%x\n", idt_ptr.base);
+    klogf("idt0: loaded IDT gates at %x\n", idt_ptr.base);
 }

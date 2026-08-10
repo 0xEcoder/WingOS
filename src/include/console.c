@@ -18,7 +18,7 @@ void console_init(struct limine_framebuffer *fb) {
         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
         0, 0, 1, 1, 1, 0, 0
     );
-    klogf("fb0: context initialized with %dx%d resolution, %d bpp, pitch %d at 0x%x\n", 
+    klogf("fb0: context initialized with %dx%d resolution, %d bpp, pitch %d at %x\n", 
           (uint32_t)fb->width, (uint32_t)fb->height, 
           (uint32_t)fb->bpp, (uint32_t)fb->pitch, (uint64_t)fb->address);
 
