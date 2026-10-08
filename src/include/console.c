@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include "timer.h"
 
+extern const unsigned char font_8x16[];
+
 static struct flanterm_context *global_ctx = NULL;
 
 void console_init(struct limine_framebuffer *fb) {
