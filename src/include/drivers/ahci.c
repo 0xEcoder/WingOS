@@ -130,14 +130,14 @@ bool ahci_read(hba_port_t *port, uint64_t start_lba, uint32_t count, void *buffe
     int slot = find_cmdslot(port);
     if (slot == -1) return false;
 
-    // 1. Get command header (using HHDM virtual offset)
+    // Get command header (using HHDM virtual offset)
     ahci_cmd_header_t *cmdheader = (ahci_cmd_header_t *)((uintptr_t)port->clb + HHDM_OFFSET);
     cmdheader += slot;
     cmdheader->cfl = sizeof(fis_reg_h2d_t) / sizeof(uint32_t); // 5 DWORDs
     cmdheader->w = 0; // Read operation
     cmdheader->prdtl = 1; // Using 1 PRDT entry for this transfer
 
-    // 2. Get command table associated with this header
+    // Get command table associated with this header
     ahci_cmd_tbl_t *cmdtbl = (ahci_cmd_tbl_t *)((uintptr_t)cmdheader->ctba + HHDM_OFFSET);
     memset(cmdtbl, 0, sizeof(ahci_cmd_tbl_t));
 
@@ -165,10 +165,10 @@ bool ahci_read(hba_port_t *port, uint64_t start_lba, uint32_t count, void *buffe
     fis->countl = (uint8_t)count;
     fis->counth = (uint8_t)(count >> 8);
 
-    // 5. Ring the doorbell to issue the command
+    // Ring the doorbell to issue the command
     port->ci |= (1 << slot);
 
-    // 6. Wait for command completion
+    // Wait for command completion
     while (1) {
         if ((port->ci & (1 << slot)) == 0) break; // Finished successfully
         if (port->is & (1 << 30)) {               // Task file error bit
@@ -177,6 +177,51 @@ bool ahci_read(hba_port_t *port, uint64_t start_lba, uint32_t count, void *buffe
         }
     }
 
+    return true;
+}
+
+// Mirroring your ahci_read function for writing
+bool ahci_write(hba_port_t *port, uint64_t start_lba, uint32_t count, void *buffer) {
+    port->is = (uint32_t)-1;
+    int slot = find_cmdslot(port);
+    if (slot == -1) return false;
+
+    ahci_cmd_header_t *cmdheader = (ahci_cmd_header_t *)((uintptr_t)port->clb + HHDM_OFFSET);
+    cmdheader += slot;
+    cmdheader->cfl = sizeof(fis_reg_h2d_t) / sizeof(uint32_t);
+    cmdheader->w = 1; // 1 = WRITE operation (unlike 0 for read)
+    cmdheader->prdtl = 1;
+
+    ahci_cmd_tbl_t *cmdtbl = (ahci_cmd_tbl_t *)((uintptr_t)cmdheader->ctba + HHDM_OFFSET);
+    memset(cmdtbl, 0, sizeof(ahci_cmd_tbl_t));
+
+    uint64_t phys_buffer = (uint64_t)buffer - HHDM_OFFSET;
+    cmdtbl->prdt_entry[0].dba = (uint32_t)phys_buffer;
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
+    cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
+    cmdtbl->prdt_entry[0].i = 1;
+
+    fis_reg_h2d_t *fis = (fis_reg_h2d_t *)(&cmdtbl->cfis);
+    fis->fis_type = FIS_TYPE_REG_H2D;
+    fis->c = 1;
+    fis->command = 0x35; // ATA_CMD_WRITE_DMA_EX command opcode
+
+    fis->lba0 = (uint8_t)start_lba;
+    fis->lba1 = (uint8_t)(start_lba >> 8);
+    fis->lba2 = (uint8_t)(start_lba >> 16);
+    fis->device = 1 << 6;
+    fis->lba3 = (uint8_t)(start_lba >> 24);
+    fis->lba4 = (uint8_t)(start_lba >> 32);
+    fis->lba5 = (uint8_t)(start_lba >> 40);
+    fis->countl = (uint8_t)count;
+    fis->counth = (uint8_t)(count >> 8);
+
+    port->ci |= (1 << slot);
+
+    while (1) {
+        if ((port->ci & (1 << slot)) == 0) break;
+        if (port->is & (1 << 30)) return false;
+    }
     return true;
 }
 

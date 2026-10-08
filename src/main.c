@@ -221,20 +221,7 @@ void _start(void) {
     
     // Allocate a temporary 512-byte buffer in kernel memory
     uint8_t *sector_buffer = (uint8_t *)pmm_alloc_page() + HHDM_OFFSET;
-
-    // Try reading LBA 2 (where ext2 superblock traditionally starts)
-    if (boot_drive_port != NULL) {
-        bool ok = ahci_read(boot_drive_port, 2, 1, sector_buffer);
-        if (ok) {
-            klogf("ahci: Successfully read LBA 2 from disk!\n");
-            
-            // Optional check for ext2 magic number (0xEF53 at offset 0x38 in superblock)
-            uint16_t magic = *(uint16_t *)(sector_buffer + 0x38);
-            klogf("ahci: Filesystem Magic Number: %x (Expected: 0xEF53)\n", magic);
-        } else {
-            klogf("ahci: Failed to read sector from disk.\n");
-        }
-    }
+    
 
     if (cmdline_request.response != NULL && cmdline_request.response->cmdline != NULL) {
         const char *cmdline = cmdline_request.response->cmdline;
