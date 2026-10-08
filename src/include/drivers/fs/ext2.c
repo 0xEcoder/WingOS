@@ -1,11 +1,16 @@
 #include "../ahci.h"
 #include "ext2.h"
 #include "../../string.h"
+#include "../../heap.h"
+#include "vfs.h"
 
 extern hba_port_t *boot_drive_port;
 
 static ext2_superblock_t sb;
 static uint32_t block_size = 1024; // Default until parsed
+
+// Forward declaration of the VFS operations table
+file_operations_t ext2_fops;
 
 bool ext2_init(void) {
     uint8_t buffer[1024]; // Two 512-byte sectors
@@ -36,8 +41,6 @@ bool ext2_read_inode(uint32_t inode_num, ext2_inode_t *out_inode) {
     uint32_t index = (inode_num - 1) % sb.s_inodes_per_group;
 
     // Read the Block Group Descriptor Table
-    // The group descriptor table starts immediately after the superblock block.
-    // If block_size is 1024, superblock is block 1, so descriptors start at block 2.
     uint32_t desc_block = (block_size == 1024) ? 2 : 1;
     uint8_t block_buf[4096];
     
@@ -47,10 +50,10 @@ bool ext2_read_inode(uint32_t inode_num, ext2_inode_t *out_inode) {
     ext2_group_desc_t *desc = (ext2_group_desc_t *)block_buf;
     ext2_group_desc_t target_group = desc[block_group];
 
-    // 4. Locate the Inode Table block for this group
+    // Locate the Inode Table block for this group
     uint32_t inode_table_block = target_group.bg_inode_table;
 
-    // 5. Calculate which block contains our specific inode
+    // Calculate which block contains our specific inode
     uint32_t inode_size = sizeof(ext2_inode_t);
     uint32_t block_offset = (index * inode_size) / block_size;
     uint32_t inode_offset_in_block = (index * inode_size) % block_size;
@@ -74,7 +77,6 @@ bool ext2_read_file_data(ext2_inode_t *inode, void *buffer) {
         uint32_t sector = inode->i_block[i] * sectors_per_block;
         uint32_t bytes_to_read = (bytes_remaining > block_size) ? block_size : bytes_remaining;
 
-        // Read directly into our destination buffer using your AHCI driver
         ahci_read(boot_drive_port, sector, sectors_per_block, dest);
 
         dest += block_size;
@@ -86,9 +88,8 @@ bool ext2_read_file_data(ext2_inode_t *inode, void *buffer) {
 bool ext2_streq(const char *s1, const char *s2, size_t len) {
     for (size_t i = 0; i < len; i++) {
         if (s1[i] != s2[i]) return false;
-        if (s1[i] == '\0') break;
     }
-    return s2[len] == '\0';
+    return true; // Lengths match and all characters match!
 }
 
 // Find a file or folder inside a directory inode by name
@@ -110,13 +111,11 @@ uint32_t ext2_lookup(ext2_inode_t *dir_inode, const char *name) {
             ext2_dir_entry_t *entry = (ext2_dir_entry_t *)(block_buf + current_offset);
 
             if (entry->inode != 0 && entry->name_len > 0) {
-                // Check if this entry matches the target name
                 if (entry->name_len == strlen(name) && ext2_streq(entry->name, name, entry->name_len)) {
                     return entry->inode; // Found it! Return the Inode number.
                 }
             }
 
-            // Avoid infinite loops if rec_len is corrupted
             if (entry->rec_len == 0) break;
             current_offset += entry->rec_len;
         }
@@ -126,21 +125,16 @@ uint32_t ext2_lookup(ext2_inode_t *dir_inode, const char *name) {
 }
 
 bool ext2_read_file_path(const char *path, void *buffer) {
-    // Initialize filesystem
     if (!ext2_init()) return false;
 
-    // Start at the root directory inode (Inode 2)
     ext2_inode_t current_inode;
     if (!ext2_read_inode(2, &current_inode)) return false;
 
-    // (Assuming a flat file lookup in root for simplicity, e.g., "hello.txt")
     uint32_t target_inode_num = ext2_lookup(&current_inode, path);
     if (target_inode_num == 0) return false;
 
-    // Read the target file's inode
     if (!ext2_read_inode(target_inode_num, &current_inode)) return false;
 
-    // Read the file contents directly into the buffer!
     return ext2_read_file_data(&current_inode, buffer);
 }
 
@@ -149,30 +143,26 @@ uint32_t ext2_resolve_path(const char *path) {
     if (path[0] != '/') return 0; // Must start at root
 
     ext2_inode_t current_inode;
-    if (!ext2_read_inode(2, &current_inode)) return 0; // Start at root inode (2)
+    if (!ext2_read_inode(2, &current_inode)) return 0;
 
-    const char *ptr = path + 1; // Skip leading slash
+    const char *ptr = path + 1;
     if (*ptr == '\0') return 2; // Path is just "/"
 
     char name_buffer[256];
     while (*ptr != '\0') {
-        // Extract the next segment name (up to '/' or end of string)
         int i = 0;
         while (*ptr != '/' && *ptr != '\0' && i < 255) {
             name_buffer[i++] = *ptr++;
         }
         name_buffer[i] = '\0';
 
-        if (*ptr == '/') ptr++; // Skip the slash for the next loop
+        if (*ptr == '/') ptr++;
 
-        // Look up this segment name in the current directory
         uint32_t next_inode_num = ext2_lookup(&current_inode, name_buffer);
-        if (next_inode_num == 0) return 0; // Not found
+        if (next_inode_num == 0) return 0;
 
-        // Load the next inode to continue searching deeper
         if (!ext2_read_inode(next_inode_num, &current_inode)) return 0;
 
-        // If we reached the end of the path string, return this final inode number
         if (*ptr == '\0') {
             return next_inode_num;
         }
@@ -180,3 +170,41 @@ uint32_t ext2_resolve_path(const char *path) {
 
     return 0;
 }
+
+// VFS Read Wrapper (matches int (*read)(struct vfs_node *, uint64_t, uint32_t, void *))
+static int ext2_vfs_read(struct vfs_node *node, uint64_t offset, uint32_t size, void *buf) {
+    (void)offset; // Unused for now
+    (void)size;
+    
+    ext2_inode_t inode;
+    if (!ext2_read_inode(node->inode, &inode)) return -1;
+    
+    if (!ext2_read_file_data(&inode, buf)) return -1;
+    return (int)inode.i_size;
+}
+
+// VFS Lookup Wrapper (matches int (*lookup)(struct vfs_node *, const char *, struct vfs_node *))
+static int ext2_vfs_lookup(struct vfs_node *dir_node, const char *name, struct vfs_node *out_node) {
+    ext2_inode_t parent_inode;
+    if (!ext2_read_inode(dir_node->inode, &parent_inode)) return -1;
+
+    uint32_t inode_num = ext2_lookup(&parent_inode, name);
+    if (inode_num == 0) return -1;
+
+    ext2_inode_t target_inode;
+    if (!ext2_read_inode(inode_num, &target_inode)) return -1;
+
+    // Populate the pre-allocated VFS node structure passed by the VFS layer
+    strncpy(out_node->name, name, 127);
+    out_node->inode = inode_num;
+    out_node->length = target_inode.i_size;
+    out_node->ops = &ext2_fops;
+
+    return 0; // Success
+}
+
+// Single, clean definition of the Ext2 VFS function table
+file_operations_t ext2_fops = {
+    .read = ext2_vfs_read,
+    .lookup = ext2_vfs_lookup
+};

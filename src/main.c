@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "include/string.h" 
 #include "include/limine.h"
 #include "include/gdt.h"
 #include "include/idt.h"
@@ -12,6 +13,8 @@
 #include "include/timer.h"
 #include "include/shell.h"
 #include "include/drivers/ahci.h"
+#include "include/drivers/fs/ext2.h"
+#include "include/drivers/fs/vfs.h"
 
 bool g_cli_mode_enabled = false;
 
@@ -213,15 +216,32 @@ void _start(void) {
 
             klogf("ahci: mapped AHCI controller to virtual address %x\n", abar_virtual);
 
-            // 3. Now it is safely in your page tables. Cast and probe!
+            // 3. Now it is safely in  page tables. Cast and probe!
             hba_mem_t *abar = (hba_mem_t *)abar_virtual;
             probe_ahci_ports(abar);
         }
     }
     
-    // Allocate a temporary 512-byte buffer in kernel memory
-    uint8_t *sector_buffer = (uint8_t *)pmm_alloc_page() + HHDM_OFFSET;
-    
+    // Declare Ext2 VFS operations vtable (defined in ext2 driver file)
+    extern file_operations_t ext2_fops;
+
+    // --- Filesystem & VFS Setup ---
+    ext2_init();
+    vfs_init(); // vfs_init() takes no parameters
+
+    // Allocate and register the Ext2 root node dynamically
+    vfs_node_t *ext2_root = (vfs_node_t *)kmalloc(sizeof(vfs_node_t));
+    if (ext2_root != NULL) {
+        strncpy(ext2_root->name, "/", 127);
+        ext2_root->inode = 2; // Ext2 root directory inode is always 2
+        ext2_root->length = 0;
+        ext2_root->ops = &ext2_fops; // Bind your Ext2 function table
+
+        vfs_mount("/", ext2_root);
+        klogf("vfs: Ext2 filesystem successfully mounted at '/'\n");
+    } else {
+        klogf("vfs: error - failed to allocate memory for root VFS node.\n");
+    }
 
     if (cmdline_request.response != NULL && cmdline_request.response->cmdline != NULL) {
         const char *cmdline = cmdline_request.response->cmdline;

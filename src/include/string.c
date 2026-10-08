@@ -18,7 +18,47 @@ void *memset(void *s, int c, size_t n) {
     return s;
 }
 
-size_t strlen(const char* str) {
+char *strcpy(char *dest, const char *src) {
+    char *out = dest;
+    while ((*dest++ = *src++) != '\0') {
+    }
+    return out;
+}
+
+char *strncpy(char *dest, const char *src, size_t n) {
+    char *out = dest;
+    for (size_t i = 0; i < n; i++) {
+        dest[i] = src[i];
+        if (src[i] == '\0') {
+            while (i < n) {
+                dest[i++] = '\0';
+            }
+            break;
+        }
+    }
+    return out;
+}
+
+int strncmp(const char *s1, const char *s2, size_t n) {
+    while (n > 0) {
+        unsigned char c1 = (unsigned char)*s1;
+        unsigned char c2 = (unsigned char)*s2;
+
+        if (c1 != c2) {
+            return (int)c1 - (int)c2;
+        }
+        if (c1 == '\0') {
+            return 0;
+        }
+
+        s1++;
+        s2++;
+        n--;
+    }
+    return 0;
+}
+
+size_t strlen(const char *str) {
     size_t len = 0;
     while (str[len] != '\0') {
         len++;
@@ -27,12 +67,9 @@ size_t strlen(const char* str) {
 }
 
 int strcmp(const char *s1, const char *s2) {
-    // Loop through both strings as long as characters match and aren't null-terminators
     while (*s1 && (*s1 == *s2)) {
         s1++;
         s2++;
     }
-    
-    // Return the ASCII difference of the first non-matching characters
     return *(const unsigned char *)s1 - *(const unsigned char *)s2;
 }

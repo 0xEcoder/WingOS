@@ -1,4 +1,9 @@
+#ifndef EXT2_H
+#define EXT2_H
+
 #include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
 
 typedef struct ext2_superblock {
     uint32_t s_inodes_count;
@@ -24,13 +29,12 @@ typedef struct ext2_superblock {
     uint32_t s_checkinterval;
     uint32_t s_creator_os;
     uint32_t s_rev_level;
-    // ... (More fields exist, but these are the basics)
 } __attribute__((packed)) ext2_superblock_t;
 
 typedef struct ext2_group_desc {
     uint32_t bg_block_bitmap;
     uint32_t bg_inode_bitmap;
-    uint32_t bg_inode_table;       // Starting block of the Inode Table
+    uint32_t bg_inode_table;        // Starting block of the Inode Table
     uint16_t bg_free_blocks_count;
     uint16_t bg_free_inodes_count;
     uint16_t bg_used_dirs_count;
@@ -41,7 +45,7 @@ typedef struct ext2_group_desc {
 typedef struct ext2_inode {
     uint16_t i_mode;
     uint16_t i_uid;
-    uint32_t i_size;               // Size of file in bytes
+    uint32_t i_size;                // Size of file in bytes
     uint32_t i_atime;
     uint32_t i_ctime;
     uint32_t i_mtime;
@@ -51,7 +55,7 @@ typedef struct ext2_inode {
     uint32_t i_blocks;
     uint32_t i_flags;
     uint32_t i_osd1;
-    uint32_t i_block[15];          // Direct (0-11) and Indirect data block pointers
+    uint32_t i_block[15];           // Direct (0-11) and Indirect data block pointers
     uint32_t i_generation;
     uint32_t i_file_acl;
     uint32_t i_dir_acl;
@@ -60,10 +64,19 @@ typedef struct ext2_inode {
 } __attribute__((packed)) ext2_inode_t;
 
 typedef struct ext2_dir_entry {
-    uint32_t inode;                // Inode number
-    uint16_t rec_len;              // Length of this directory entry
-    uint8_t  name_len;             // Length of file name
-    uint8_t  file_type;            // File type indicator
-    char     name[];               // Variable-length file name string
+    uint32_t inode;                 // Inode number
+    uint16_t rec_len;               // Length of this directory entry
+    uint8_t  name_len;              // Length of file name
+    uint8_t  file_type;             // File type indicator
+    char     name[];                // Variable-length file name string
 } __attribute__((packed)) ext2_dir_entry_t;
 
+bool ext2_init(void);
+bool ext2_read_inode(uint32_t inode_num, ext2_inode_t *out_inode);
+bool ext2_read_file_data(ext2_inode_t *inode, void *buffer);
+bool ext2_streq(const char *s1, const char *s2, size_t len);
+uint32_t ext2_lookup(ext2_inode_t *dir_inode, const char *name);
+bool ext2_read_file_path(const char *path, void *buffer);
+uint32_t ext2_resolve_path(const char *path);
+
+#endif
