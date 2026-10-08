@@ -17,8 +17,8 @@ void console_init(struct limine_framebuffer *fb) {
         fb->red_mask_size, fb->red_mask_shift,
         fb->green_mask_size, fb->green_mask_shift,
         fb->blue_mask_size, fb->blue_mask_shift,
-        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
-        0, 0, 1, 1, 1, 0, 0
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, font_8x16,
+        8, 16, 0, 1, 1, 0, 0
     );
     klogf("fb0: context initialized with %dx%d resolution, %d bpp, pitch %d at %x\n", 
           (uint32_t)fb->width, (uint32_t)fb->height, 
